@@ -4,7 +4,7 @@
 <<knitr, echo=FALSE, results="hide">>=
 library("knitr")
 opts_chunk$set(tidy=FALSE,dev="png",
-               message=FALSE,eval=TRUE)
+               message=FALSE,eval=FALSE)
 @ 
 
 <<style, eval=TRUE, echo=FALSE, results="asis">>=
@@ -24,7 +24,7 @@ BiocStyle::latex()
 \maketitle
 \tableofcontents
 
-\section{Clustering}
+\section{Clustering and PCA}
 
 \subsection{Example from the DESeq2 Vignette}
 
@@ -205,6 +205,40 @@ topNGenes <- rownames(res.sig.ord)[1:N]
 
 <<>>=
 pheatmap(assay(nt)[match(topNGenes, rownames(assay(nt))),],annotation_col=df)
+@
+
+
+\section{GO analysis}
+
+
+
+<<>>=
+load("Day2/edgeRAnalysis_ALLGENES.RData")
+head(y)
+@
+
+<<>>=
+genes <- as.integer(y$FDR < 0.05)
+names(genes) <- rownames(y)
+@
+
+<<>>=
+library(goseq)
+head(supportedGenomes())[,1:4]
+@
+
+<<>>=
+head(supportedGeneIDs(),n=12)[,1:4]
+@
+
+<<>>=
+pwf <- nullp(genes ,"hg19","knownGene")
+head(pwf)
+@
+
+<<>>=
+go <- goseq(pwf, "hg19","knownGene")
+head(go)
 @
 
 
