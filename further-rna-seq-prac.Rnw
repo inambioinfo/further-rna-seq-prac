@@ -308,7 +308,7 @@ col=colors)
 plotPCA(rld, intgroup=c("sampleType","sampleReplicate"))
 @
 
-The PCA plot is configurable provided we know a tiny bit about \CRANpkg{ggplot2}. 
+The PCA plot is configurable provided we know a tiny bit about \CRANpkg{ggplot2}. The DESeq2 authors recognise that some might want more control over the PCA plots, so provide a way of accessing the data that would be displayed on the plot with the {\tt returnData=TRUE} argument.
 
 \usecase Re-do the PCA analysis, but this time save the PCA results as an object
 
@@ -352,25 +352,60 @@ res.sig.ord <- res.sig[order(res.sig$padj,decreasing = FALSE),]
 topNGenes <- rownames(res.sig.ord)[1:N]
 @
 
-\usecase Make a heatmap of your top 100 genes 
+\usecase Make a heatmap of your top 100 genes. Can you see any distinct clusters of genes in the heatmap?
 
 <<>>=
-pheatmap(assay(nt)[match(topNGenes, rownames(assay(nt))),],annotation_col=df)
+pheatmap(assay(rld)[match(topNGenes, rownames(assay(nt))),],annotation_col=df)
 @
+
+
+If we identify genes with distinct expression patterns, a natural question would be to ask what genes belong in each cluster. We could export the plot as a pdf and try and read the gene names from the row labels. We can also answer this by recalling that the \Rfunction{pheatmap} (unless specified otherwise) is infact using the built-in clustering options in R to cluster the rows. There exist a number of ways that we can "cut" such a dendrogram in R. 
+
+\usecase Produce a dendrogram to show the clustering of the top DE genes. 
+
+<<>>=
+geneDists <- dist(assay(rld)[match(topNGenes, rownames(assay(nt))),])
+
+geneDistMatrix <- as.matrix(geneDists)
+
+hc <- hclust(geneDists)
+
+plot(hc)
+@
+
+The \Rfunction{rect.hclust} and \Rfunction{cutree} functions can be used to split the dendrogram at different heights and number of groups. 
+
+\usecase Use \Rfunction{rect.hclust} and \Rfunction{cutree} to see what genes belong to the same cluster. Choose an appropriate value for k; the number of clusters
+
+<<>>=
+rect.hclust(hc,k=3)
+sort(cutree(hc,k=3))
+@
+
 
 \subsubsection{Heatmap of particular gene set}
 
-Let's say we are interested in genes belonging to a particular GO term; GO:0030216 (keratinocyte differentiation)
+Let's say we are interested in genes belonging to a particular GO term; GO:0030216 (keratinocyte differentiation). We can use the organism-level packages that we just learnt about to retrieve the IDs of genes that belong to this GO term.
 
-\usecase Make a heatmap from your selected genes
+\usecase Obtain the Entrez IDs for the GO term of interest
 
 <<>>=
 library(org.Hs.eg.db)
 keytypes(org.Hs.eg.db)
 columns(org.Hs.eg.db)
-genes.of.interest <- select(org.Hs.eg.db,keys="GO:0030216",keytype="GO",columns="ENTREZID")
+genes.of.interest <- select(org.Hs.eg.db,keys="GO:0030216",
+                            keytype="GO",columns="ENTREZID")
+genes.of.interest
 
 genes.of.interest <- genes.of.interest[,4]
+
+@
+
+We might not have all the genes representing in our dataset, particularly if we have done some filtering. So we probably want to remove any IDs that cannot be matched to our dataset. Also we want to remove any duplicated IDs.
+
+\usecase Make a heatmap from your selected genes
+
+<<>>=
 selRows <- unique(na.omit(match(genes.of.interest,rownames(assay(nt)))))
 
 pheatmap(assay(rld)[selRows,],annotation_col=df)
@@ -378,38 +413,155 @@ pheatmap(assay(rld)[selRows,],annotation_col=df)
 @
 
 
-
 \section{GO analysis}
 
+(based on the \Biocpkg{goseq} vignette)
 
+There are plenty of software packages in Bioconductor and online tools that deal with gene ontology testing. For this practical, we will use the \Biocpkg{goseq} package which has been specifically-developed for the gene onotology analysis of RNA-seq data. An attractive feature of this package is that it accounts for biases in gene length. The methods are equally applicable to other category based testing, such as KEGG pathways. 
+
+The input to the package is quite simple. We need to supply a named vector which contains two pieces of information. 
+\begin{itemize}
+\item{Measured genes - all genes for which RNA-seq data was gathered for your experiment. Each element of your vector should be named by a unique gene identifier}
+\item{Differentially expressed genes - each element of your vector should be either a 1 or a 0, where 1 indicates that the gene is differentially expressed and 0 that it is not}
+\end{itemize}
+
+Provided that a \emph{supported} genone and naming scheme is being used (we will see how to obtain details on these shortly), \Biocpkg{goseq} should be able to proceed with the analysis.
+
+\usecase Load the object that contains the DE results for all genes.
 <<>>=
 load("Day2/edgeRAnalysis_ALLGENES.RData")
 head(y)
 @
+
+The next step is to determine which genes are DE. We don't have to be too strict in our selection and can use a typical cut-off of 0.05.
+
+\usecase Create a vector to signify whether each gene in the analysis was DE or not. 
 
 <<>>=
 genes <- as.integer(y$FDR < 0.05)
 names(genes) <- rownames(y)
 @
 
+\Biocpkg{goseq} is happy to take care of the mapping between gene names and GO categories for us. However, in order to do this, we need to use one of the genomes and identifier schemes that it knows about. The \Rfunction{supportedGenomes} and \Rfunction{supportedGeneIDs} functions are provided for this purpose. The result of each these functions is a table describing the various options that are available. The first columns are pre-defined names that {\tt goseq} can recognise. The other columns should give you enough information to guide your choice. 
+
+\usecase Check the names of the genomes that are supported by goseq. Make a note of the IDs that you should use.
+
 <<>>=
 library(goseq)
 head(supportedGenomes())[,1:4]
-@
-
-<<>>=
 head(supportedGeneIDs(),n=12)[,1:4]
 @
+
+\bioccomment{For our example dataset, the genome version was \emph{hg19} and each gene was represented by it's \emph{Entrez} ID; so we would want to specify {\tt hg19} and {\tt knownGene}.}
+
+``To begin the analysis, goseq first needs to quantify the length bias present in the dataset under
+consideration. This is done by calculating a Probability Weighting Function or PWF which can
+be thought of as a function which gives the probability that a gene will be differentially expressed
+(DE), based on its length alone. The PWF is calculated by fitting a monotonic spline to the binary
+data series of differential expression (1=DE, 0=Not DE) as a function of gene length. The PWF is
+used to weight the chance of selecting each gene when forming a null distribution for GO category
+membership. The fact that the PWF is calculated directly from the dataset under consideration
+makes this approach robust, only correcting for the length bias present in the data. For example,
+if goseq is run on a microarray dataset, for which no length bias exists, the calculated PWF will
+be nearly flat and all genes will be weighted equally, resulting in no length bias correction.
+In order to account for the length bias inherent to RNA-seq data when performing a GO analysis
+(or other category based tests), one cannot simply use the hypergeometric distribution as the null
+distribution for category membership, which is appropriate for data without DE length bias, such
+as microarray data. GO analysis of RNA-seq data requires the use of random sampling in order
+to generate a suitable null distribution for GO category membership and calculate each categories
+significance for over representation amongst DE genes.
+
+However, this random sampling is computationally expensive. In most cases, the Wallenius
+distribution can be used to approximate the true null distribution, without any significant loss in accuracy. The goseq package implements this approximation as its default option. The option
+to generate the null distribution using random sampling is also included as an option, but users
+should be aware that the default number of samples generated will not be enough to accurately
+call enrichment when there are a large number of go terms.
+Having established a null distribution, each GO category is then tested for over and under
+representation amongst the set of differentially expressed genes and the null is used to calculate a
+p-value for under and over representation.''
+
+\usecase Fit the PWF function to your dataset. Make sure you choose the correct names for the organism and gene identifier.
 
 <<>>=
 pwf <- nullp(genes ,"hg19","knownGene")
 head(pwf)
 @
 
+
+\Rfunction{nullp} plots the resulting fit, allowing verification of the goodness of fit before continuing the
+analysis. Further plotting of the pwf can be performed using the \Rfunction{plotPWF} function.
+
+The output of \Rfunction{nullp} contains all the data used to create the PWF, as well as the PWF itself.
+It is a data frame with 3 columns, named {\tt DEgenes}, {\tt bias.data} and {\tt pwf} with the rownames set
+to the gene names. Each row corresponds to a gene with the DEgenes column specifying if the
+gene is DE (1 for DE, 0 for not DE), the bias.data column giving the numeric value of the DE bias
+being accounted for (usually the gene length or number of counts) and the pwf column giving the
+genes value on the probability weighting function.
+
+We will use the default method, to calculate the over and under expressed GO
+categories among DE genes. Again, we allow goseq to fetch data automatically, except this time the data being fetched is the relationship between Entrez gene IDs and GO categories.
+
+\usecase Perform under- and over-representation analysis. How many GO categories and over-represented with a p-value of less than 0.05?
+
 <<>>=
 go <- goseq(pwf, "hg19","knownGene")
 head(go)
+sum(go$over_represented_pvalue< 0.05)
 @
 
+By default, goseq tests all three major Gene Ontology branches; Cellular Components, Biological
+Processes and Molecular Functions. However, it is possible to limit testing to any combination
+of the major branches by using the test.cats argument to the goseq function. This is done by
+specifying a vector consisting of some combination of the strings “GO:CC”, “GO:BP” and “GO:MF”.
+
+\usecase Restrict your analysis to just Molecular Functions
+
+<<>>=
+go.mf <- goseq(pwf, "hg19","knownGene",test.cats=c("GO:MF"))
+head(go.mf)
+dim(go.mf)
+sum(go.mf$over_represented_pvalue< 0.05)
+@
+
+
+Having performed the GO analysis, you may now wish to interpret the results. If you wish to
+identify categories significantly enriched/unenriched below some p-value cutoff, it is necessary to
+first apply some kind of multiple hypothesis testing correction. For example, GO categories over
+enriched using a .05 FDR cutoff [Benjamini and Hochberg, 1995] can be obtained by running the \Rfunction{p.adjust} function on the un-adjusted p-values in the table
+
+\usecase Adjust the p-values in the table for multiple-testing. How many categories with p-value < 0.05 do you find now?
+
+<<>>=
+go$over_represented_pvalue_adjusted <- p.adjust(go$over_represented_pvalue,
+                                                method="BH")
+sum(go$over_represented_pvalue_adjusted < 0.05)
+
+go.enriched <- go[go$over_represented_pvalue_adjusted < 0.05,]
+
+@
+
+The GO identifiers are probably not very useful to you. We can obtain extra information about each GO term using one of the handy pre-built database packages that Bioconductor provides; \Biocannopkg{GO.db}.
+
+\usecase Load the \Biocannopkg{GO.db} package. What mappings are possible with this package?
+
+<<>>=
+library(GO.db)
+columns(GO.db)
+keytypes(GO.db)
+@
+
+\usecase Create a data frame with the definition and term for each GO ID in your table of results
+
+<<>>=
+go.anno <- select(GO.db,keys=go.enriched$category, keytype="GOID",
+                  columns = c("TERM","DEFINITION"))
+@
+
+Finally, we can merge this data with our existing table and export
+
+<<>>=
+go.final <- data.frame(go.enriched,go.anno)
+write.csv(go.final ,file="goseq-analysis.csv",row.names = FALSE)
+@
 
 \end{document}
