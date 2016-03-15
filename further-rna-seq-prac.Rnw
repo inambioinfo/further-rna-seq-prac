@@ -1,6 +1,8 @@
 \documentclass[12pt]{article}
 \newcommand{\usecase}{\textit{\textbf{Use Case: }}}
-
+\newcommand{\notebell}{\bell}
+\newcommand{\noteright}{\Pointinghand}
+\newcommand{\textinfo}{\Info}
 <<knitr, echo=FALSE, results="hide">>=
 library("knitr")
 opts_chunk$set(tidy=FALSE,dev="png",
@@ -26,85 +28,220 @@ BiocStyle::latex()
 
 \section{Clustering and PCA}
 
-\subsection{Example from the DESeq2 Vignette}
+\subsection{Introduction to the DESeq2 Vignette}
 
-The general application of clustering to RNA-seq data is outlined by the DESeq2 vignette
+The general application of clustering to RNA-seq data is outlined by Section 2.2 of the \Biocpkg{DESeq2} vignette. We will follow this section of the vignette closely.
+
+The DESeq2 vignette uses the \emph{pasilla} dataset; a popular example dataset in Bioconductor concerning the RNAi knock-out of the pasilla splicing factor in Drosophilla. Full details of the dataset can be found in the vignette for the \Biocexptpkg{pasilla} package. For convenience, the gene-level counts for these data are available as the \Robject{pasillaGenes} object  in the \Biocexptpkg{pasilla} package.
+
+The counts and experiment metadata can be accessed using the \Rfunction{counts} and \Rfunction{pData} functions respectively.
+
+\subsection{Importing the pasilla dataset}
+
+\usecase Load the pasilla Bioconductor package and save the counts and metadata as new R objects. 
 
 <<>>=
 library("pasilla")
 library("Biobase")
 data("pasillaGenes")
 countData <- counts(pasillaGenes)
+head(countData)
+pData(pasillaGenes)
 colData <- pData(pasillaGenes)[,c("condition","type")]
 @
+
+A dataset ready for analysis with DESeq2 can be constructed using the \Rfunction{DESeqDataSetFromMatrix} function in DESeq2. You need to specify the counts matrix and experiment metadata, along with an experimental design. In this case, we want to test for \emph{treated} versus \emph{untreated}.
+
+\usecase Create a DESeq2 dataset for the pasilla dataset
 
 <<>>=
 library(DESeq2)
 dds <- DESeqDataSetFromMatrix(countData = countData,
-colData = colData,
-design = ~ condition)
+  colData = colData,
+  design = ~ condition)
 dds
 @
 
+In some of the analysis we are going to perform, it will be useful to supply extra annotation for the features (genes). The DESeq2 package makes extensive use of the GenomicRanges infrastructure that we introduced previously in the course. Specifically, we can add feature annotation to the \Robject{mcols} of the dataset
+
+\usecase Add feature annotation to the dataset
 
 <<>>=
 featureData <- data.frame(gene=rownames(pasillaGenes))
 (mcols(dds) <- DataFrame(mcols(dds), featureData))
 @
 
+\usecase Calculate the scaling factors for the dataset
 
 <<>>=
 dds <- estimateSizeFactors(dds)
 @
 
+
+
+\subsection{Quality assessment using heatmaps, clustering and PCA}
+
+Data quality assessment and quality control (i. e. the removal of insufficiently good data) are essential steps
+of any data analysis. These steps should typically be performed very early in the analysis of a new data set,
+preceding or in parallel to the differential expression testing.
+We define the term quality as \href{https://en.wikipedia.org/wiki/Quality_%28business%29}{fitness for purpose}. Our purpose is the detection of differentially expressed
+genes, and we are looking in particular for samples whose experimental treatment suffered from an anormality
+that renders the data points obtained from these particular samples detrimental to our purpose.
+
+To produce heatmaps, we will use the \CRANpkg{pheatmap} (\emph{"pretty heatmap"}) package. Similar steps can be performed in the \CRANpkg{heatmap.plus} package, the \Rfunction{heatmap.2} function in \CRANpkg{gplots} or the base \Rfunction{heatmap} function.
+
+Drawing a heatmap can be computationally-expensive. Also, they are more-easily interpretable when the number of rows (genes) is low. Typically we filter our dataset to only include informative genes that are expressed or variable in our dataset.
+
+\usecase Select the 20 most-highly expressed genes in the dataset
+
 <<>>=
 library("pheatmap")
-select <- order(rowMeans(counts(dds,normalized=TRUE)),decreasing=TRUE)[1:20]
+N <- 20
+select <- order(rowMeans(counts(dds,normalized=TRUE)),decreasing=TRUE)[1:N]
 @
+
+In order to test for differential expression, we operate on raw counts
+and use discrete distributions as described in the previous practical.
+However for other downstream analyses -- e.g. for visualization or clustering -- it might be useful 
+to work with transformed versions of the count data. 
+
+Maybe the most obvious choice of transformation is the logarithm.
+Since count values for a gene can be zero in some
+conditions (and non-zero in others), some advocate the use of
+\emph{pseudocounts}, i.\,e.\ transformations of the form
+
+\begin{equation}\label{eq:shiftedlog}
+  y = \log_2(n + 1)\quad\mbox{or more generally,}\quad y = \log_2(n + n_0),
+\end{equation}
+
+where $n$ represents the count values and $n_0$ is a positive constant. The \Rfunction{normTransform}
+
+The \Biocpkg{DESeq2} vignette goes on to describe the \emph{regularized log} and \emph{variance stabilizing} transformations, which might be of interest to more-advanced users.
+
+\usecase Transform the data onto a scale suitable for visualisation (e.g. log$_2$). Extract the transformed values for the 20 most highly expressed genes
 
 <<>>=
 nt <- normTransform(dds) # defaults to log2(x+1)
 log2.norm.counts <- assay(nt)[select,]
-df <- as.data.frame(colData(dds)[,c("condition","type")])
 @
 
+We are now ready to produce the heatmap. The function we are going to use is \Rfunction{pheatmap}. As usual, we can find out more about this function by typing {\tt ?pheatmap}. It is useful to annotate the columns (samples) in the heatmap using particular levels from the experiment metadata. \Rfunction{pheatmap} is able to add this information provided we supply it with a data frame with the same number of \emph{rows} as the number of columns in our matrix. We can have as many columns of meta data as we like.
+
+\usecase Create a data frame that has the condition and read-type (single or paired-end) for each sample. Produce a heatmap of the normalized counts of your selected genes that incorporates the metadata for each sample.
 
 <<>>=
+df <- as.data.frame(colData(dds)[,c("condition","type")])
 pheatmap(log2.norm.counts, cluster_rows=FALSE, show_rownames=FALSE,
 cluster_cols=FALSE, annotation_col=df)
 @
 
+\bioccomment{We have chosen not to cluster the rows or columns, so the columns in the plot appear in the same order as the original matrix. Sometimes we might want to decide this order by clustering, as we will do in subsequent examples.}
+
+Another use of the transformed data is sample clustering. This is done in an un-supervised manner to see if the clustering can uncover the known sample groups in our data.
+
+We will switch our analysis to the \emph{regularized log} transformed data, which can be computed using the \Rfunction{rlog} function. This transformation is described in detail in Section 2.1.3 of the DESeq2 vignette. The \Rfunction{dist} function can then be use to calculate pairwise distances between all samples. We have to remember to \emph{transpose} the transformed matrix using the \Rfunction{t} function.
+
+\usecase Compute the regularized log intensities and use these to calculate a distance matrix. What metric is being used to calculate the distances?
 
 <<>>=
-rld <- rlog(dds,blind = TRUE)
-vsd <- varianceStabilizingTransformation(dds)
-head(assay(rld), 3)
-@
-
-
-<<>>=
-sampleDists <- dist(t(assay(rld)))
+rld <- rlog(dds)
+rlog.intensities <- assay(rld)
+head(rlog.intensities)
+sampleDists <- dist(t(rlog.intensities))
 sampleDists
 @
 
+If we wanted, we could use the standard hierachical clustering function in R, \Rfunction{hclust}, to cluster the samples.
+
+\usecase Produce a dendrogram to visualise the clustering of the samples. Does it confirm the known sample groups?
+
 <<>>=
-library("RColorBrewer")
+hc <- hclust(sampleDists)
+plot(hc)
+@
+
+A more-appealing visualisation can be produced by \Rfunction{pheatmap}. In the previous example, we told \Rfunction{pheatmap} to retain the original column and row orders. Another way of using \Rfunction{pheatmap} is to supply a pre-computed distance matrix. 
+
+\usecase Produce a heatmap to visualise the sample relationships from the distance matrix that you just computed.
+
+<<>>=
 sampleDistMatrix <- as.matrix(sampleDists)
 rownames(sampleDistMatrix) <- paste(rld$condition, rld$type, sep="-")
 colnames(sampleDistMatrix) <- NULL
-colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+
+
+pheatmap(sampleDistMatrix,
+clustering_distance_rows=sampleDists,
+clustering_distance_cols=sampleDists)
+@
+
+Another way of customising the heatmap is to specify the colour palette used to colour each cell in the matrix. Many visually-appealing palettes are provided 
+in the \CRANpkg{RColorBrewer} package. 
+
+\usecase Load the \CRANpkg{RColorBrewer} package and see what palettes are available
+
+<<>>=
+library("RColorBrewer")
+display.brewer.all()
+@
+
+The \Rfunction{colorRampPalette} function can be used to interpolate a set of given colours
+
+\usecase Create a palette that ranges from dark-blue (low) to white (high) and use this palette in the heatmap
+
+<<>>=
+colors <- colorRampPalette(rev(brewer.pal(9, "Blues")) )(255)
 pheatmap(sampleDistMatrix,
 clustering_distance_rows=sampleDists,
 clustering_distance_cols=sampleDists,
 col=colors)
 @
 
+\bioccomment{You should make sure that the colour palette you choose are suitable for those with colour-blindness}
+
+\subsection{PCA}
+
+Principal Components Analysis (PCA) is a useful dimension-reduction technique that can highlight relationships between samples in our dataset. As it can be computationally-expensive, it is best performed on a filtered version of the data. Typically, we pick the "most-variable" genes. The \Rfunction{rowVars} function in \Biocpkg{genefilter} is useful for this task. DESeq2 actually provides a function that automates the steps required to do a PCA analysis of a \Robject{DESeqDataSet} object and produce an informative plot. However, we will go through the steps manually to illustrate the method. 
+ 
+\usecase Create a vector of indices for the 500 most variable genes according to the {\tt rld} data
+
+<<>>=
+library(genefilter)
+rv <- rowVars(assay(rld))
+select <- order(rv, decreasing=TRUE)[1:500]
+@
+
+PCA can be performed using the \Rfunction{prcomp} function. As when computing a distance matrix, we need to remember to \emph{transpose} our matrix of intensities if we want to do PCA on the samples. 
+
+\usecase Perform PCA on the filtered data. How much variance is explained by the first two principal components?
+ 
+<<>>=
+pca <- prcomp(t(assay(rld)[select,]))
+summary(pca)
+plot(pca)
+@
+
+\usecase Produce a plot of the first two principal components and colour each point according to whether the particular sample is "treated" or "untreated. Does the plot show clear separation of sample groups?
+ 
+<<>>=
+pca$x
+sampcols <- c(rep("blue",3),rep("red",4))
+plot(pca$x[,1], pca$x[,2],pch=16,col=sampcols)
+@
+
+At this point, we introduce the \Rfunction{plotPCA} function which automates the steps we have just performed and produces and attractive plot. The plot is produced by the popular \CRANpkg{ggplot2}, and later-on we will see how to customise this plot
+
+\usecase Use the in-built \Rfunction{plotPCA} function to produce the PCA plot
 
 <<>>=
 plotPCA(rld, intgroup=c("condition", "type"))
 @
 
 \subsection{Re-visiting our ESCC dataset}
+
+\subsubsection{Pre-processing}
+
+In the previous DE practical, we have already gone through the processing of this dataset. We can repeat the steps now, if you have closed your RStudio session since the DE practical.
 
 <<>>=
 library(DESeq2)
@@ -118,28 +255,17 @@ rownames(Coldata) <- c("16N", "16T", "18N", "18T", "19N", "19T")
 
 deSeqData <- DESeqDataSetFromMatrix(countData=Counts, colData=Coldata,
               design= ~sampleReplicate + sampleType)
-deSeqData                      
-@
-
-
-
-<<>>=
-nrow(counts(deSeqData))
-summary(rowSums(counts(deSeqData)))
 deSeqData <- deSeqData[rowSums(counts(deSeqData))>1,]
-@
-
-
-<<>>=
 deSeqData <- estimateSizeFactors(deSeqData)
-colData(deSeqData)
-head(counts(deSeqData))
 @
 
+\subsubsection{Sample Count Heatmap}
+
+\usecase Produce a heatmap of the normalized counts of the most expressed genes in the ESCC dataset
+
 <<>>=
-library(genefilter)
 nt <- normTransform(deSeqData) # defaults to log2(x+1)
-select <- order(rowVars(counts(deSeqData,normalized=TRUE)),decreasing=TRUE)[1:20]
+select <- order(rowMeans(counts(deSeqData,normalized=TRUE)),decreasing=TRUE)[1:20]
 
 log2.norm.counts <- assay(nt)[select,]
 df <- as.data.frame(colData(deSeqData)[,c("sampleReplicate","sampleType")])
@@ -152,28 +278,13 @@ pheatmap(log2.norm.counts, cluster_rows=FALSE, show_rownames=FALSE,
 cluster_cols=TRUE, annotation_col=df)
 @
 
-<<>>=
-plotPCA(nt, intgroup=c("sampleType","sampleReplicate"))
-@
 
+\subsubsection{Sample Distances Heatmap}
 
-<<>>=
-pcData <- plotPCA(nt, intgroup=c("sampleType","sampleReplicate"),returnData=TRUE)
-pcData
-@
+\usecase Perform the \Rfunction{rlog} transformation and make a heatmap of the pairwise sample distances.
 
 <<>>=
-library(ggplot2)
-percentVar <- round(100*attr(pcData, "percentVar"))
-ggplot(pcData, aes(x=PC1,y=PC2,color=sampleType,shape=sampleReplicate))+
-  geom_point(size=5)+
-  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
-  ylab(paste0("PC2: ", percentVar[2], "% variance"))
-@
-
-
-
-<<>>=
+rld <- rlog(deSeqData)
 sampleDists <- dist(t(assay(rld)))
 sampleDists
 
@@ -188,12 +299,51 @@ col=colors)
 
 @
 
+\subsubsection{PCA}
+
+
+\usecase Perform a PCA analysis and visualise the results
+
+<<>>=
+plotPCA(rld, intgroup=c("sampleType","sampleReplicate"))
+@
+
+The PCA plot is configurable provided we know a tiny bit about \CRANpkg{ggplot2}. 
+
+\usecase Re-do the PCA analysis, but this time save the PCA results as an object
+
+<<>>=
+pcData <- plotPCA(rld, intgroup=c("sampleType","sampleReplicate"),returnData=TRUE)
+pcData
+@
+
+\usecase Visualise the PCA result, but colour each point according to sample group and plot a different shape for each patient in the study
+
+<<>>=
+library(ggplot2)
+percentVar <- round(100*attr(pcData, "percentVar"))
+ggplot(pcData, aes(x=PC1,y=PC2,color=sampleType,shape=sampleReplicate))+
+  geom_point(size=5)+
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance"))
+@
+
+
+
+\subsubsection{Heatmap of DE genes}
+
+Sometimes we might want to take the list of top genes from a DE analysis and use this to produce a heatmap.
+
+\usecase Re-do the DE analysis using the workflow introduced in the DE analysis practical
+
 <<>>=
 deSeqData <- estimateDispersions(deSeqData)
 mcols(deSeqData)
 deSeqData <- nbinomWaldTest(deSeqData)
 res <- results(deSeqData)
 @
+
+\usecase Select a subset of the DE results with a p-value less than 0.05.
 
 <<>>=
 res.sig <- res[which(res$padj < 0.05),]
@@ -202,14 +352,34 @@ res.sig.ord <- res.sig[order(res.sig$padj,decreasing = FALSE),]
 topNGenes <- rownames(res.sig.ord)[1:N]
 @
 
+\usecase Make a heatmap of your top 100 genes 
 
 <<>>=
 pheatmap(assay(nt)[match(topNGenes, rownames(assay(nt))),],annotation_col=df)
 @
 
+\subsubsection{Heatmap of particular gene set}
+
+Let's say we are interested in genes belonging to a particular GO term; GO:0030216 (keratinocyte differentiation)
+
+\usecase Make a heatmap from your selected genes
+
+<<>>=
+library(org.Hs.eg.db)
+keytypes(org.Hs.eg.db)
+columns(org.Hs.eg.db)
+genes.of.interest <- select(org.Hs.eg.db,keys="GO:0030216",keytype="GO",columns="ENTREZID")
+
+genes.of.interest <- genes.of.interest[,4]
+selRows <- unique(na.omit(match(genes.of.interest,rownames(assay(nt)))))
+
+pheatmap(assay(rld)[selRows,],annotation_col=df)
+
+@
+
+
 
 \section{GO analysis}
-
 
 
 <<>>=
