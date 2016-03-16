@@ -30,7 +30,7 @@ BiocStyle::latex()
 
 \subsection{Introduction to the DESeq2 Vignette}
 
-The general application of clustering to RNA-seq data is outlined by Section 2.2 of the \Biocpkg{DESeq2} vignette. We will follow this section of the vignette closely.
+The general application of clustering to RNA-seq data is outlined by Section 2.2 of the \Biocpkg{DESeq2} vignette. We will follow this section of their vignette closely.
 
 The DESeq2 vignette uses the \emph{pasilla} dataset; a popular example dataset in Bioconductor concerning the RNAi knock-out of the pasilla splicing factor in Drosophilla. Full details of the dataset can be found in the vignette for the \Biocexptpkg{pasilla} package. For convenience, the gene-level counts for these data are available as the \Robject{pasillaGenes} object  in the \Biocexptpkg{pasilla} package.
 
@@ -68,7 +68,8 @@ In some of the analysis we are going to perform, it will be useful to supply ext
 
 <<>>=
 featureData <- data.frame(gene=rownames(pasillaGenes))
-(mcols(dds) <- DataFrame(mcols(dds), featureData))
+mcols(dds) <- DataFrame(mcols(dds), featureData)
+dds
 @
 
 \usecase Calculate the scaling factors for the dataset
@@ -90,7 +91,7 @@ that renders the data points obtained from these particular samples detrimental 
 
 To produce heatmaps, we will use the \CRANpkg{pheatmap} (\emph{"pretty heatmap"}) package. Similar steps can be performed in the \CRANpkg{heatmap.plus} package, the \Rfunction{heatmap.2} function in \CRANpkg{gplots} or the base \Rfunction{heatmap} function.
 
-Drawing a heatmap can be computationally-expensive. Also, they are more-easily interpretable when the number of rows (genes) is low. Typically we filter our dataset to only include informative genes that are expressed or variable in our dataset.
+Drawing a heatmap can be computationally-expensive. Also, they are more-easily interpretable when the number of rows (genes) is low. Typically we filter our dataset to only include informative genes that are expressed, or variable, in our dataset.
 
 \usecase Select the 20 most-highly expressed genes in the dataset
 
@@ -228,6 +229,17 @@ pca$x
 sampcols <- c(rep("blue",3),rep("red",4))
 plot(pca$x[,1], pca$x[,2],pch=16,col=sampcols)
 @
+
+Remember that the actual values of the Principal components cannot be readily interpreted. We can however plot them in relation to know sample grouping and metadata to ease their interpretation. A boxplot is useful for this task.
+
+\usecase Use a boxplot to visualise the values of the first two principal components in relation to the sample condition and type variables
+
+<<>>=
+colData(dds)
+boxplot(pca$x[,1] ~ colData(dds)[,"condition"])
+boxplot(pca$x[,2] ~ colData(dds)[,"type"])
+@
+
 
 At this point, we introduce the \Rfunction{plotPCA} function which automates the steps we have just performed and produces and attractive plot. The plot is produced by the popular \CRANpkg{ggplot2}, and later-on we will see how to customise this plot
 
@@ -429,7 +441,7 @@ Provided that a \emph{supported} genone and naming scheme is being used (we will
 
 \usecase Load the object that contains the DE results for all genes.
 <<>>=
-load("Day2/edgeRAnalysis_ALLGENES.RData")
+load("Day3/edgeRAnalysis_ALLGENES.RData")
 head(y)
 @
 
