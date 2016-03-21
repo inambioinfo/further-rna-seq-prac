@@ -115,9 +115,8 @@ conditions (and non-zero in others), some advocate the use of
   y = \log_2(n + 1)\quad\mbox{or more generally,}\quad y = \log_2(n + n_0),
 \end{equation}
 
-where $n$ represents the count values and $n_0$ is a positive constant. The \Rfunction{normTransform}
+where $n$ represents the count values and $n_0$ is a positive constant. The \Rfunction{normTransform} function implements this transformation.
 
-The \Biocpkg{DESeq2} vignette goes on to describe the \emph{regularized log} and \emph{variance stabilizing} transformations, which might be of interest to more-advanced users.
 
 \usecase Transform the data onto a scale suitable for visualisation (e.g. log$_2$). Extract the transformed values for the 20 most highly expressed genes
 
@@ -140,7 +139,7 @@ cluster_cols=FALSE, annotation_col=df)
 
 Another use of the transformed data is sample clustering. This is done in an un-supervised manner to see if the clustering can uncover the known sample groups in our data.
 
-We will switch our analysis to the \emph{regularized log} transformed data, which can be computed using the \Rfunction{rlog} function. This transformation is described in detail in Section 2.1.3 of the DESeq2 vignette. The \Rfunction{dist} function can then be use to calculate pairwise distances between all samples. We have to remember to \emph{transpose} the transformed matrix using the \Rfunction{t} function.
+We will switch our analysis to the \emph{regularized log} transformed data, which can be computed using the \Rfunction{rlog} function. This transformation is described in detail in Section 2.1.3 of the DESeq2 vignette and is more similar to the transformations that take place as part of the DESeq2 analysis workflow for Differential expression analysis. The \Rfunction{dist} function can then be use to calculate pairwise distances between all samples. We have to remember to \emph{transpose} the transformed matrix using the \Rfunction{t} function.
 
 \usecase Compute the regularized log intensities and use these to calculate a distance matrix. What metric is being used to calculate the distances?
 
@@ -160,6 +159,8 @@ If we wanted, we could use the standard hierachical clustering function in R, \R
 hc <- hclust(sampleDists)
 plot(hc)
 @
+
+\bioccomment{If you have time, you can experiment with different distance metrics and clustering algorithms}
 
 A more-appealing visualisation can be produced by \Rfunction{pheatmap}. In the previous example, we told \Rfunction{pheatmap} to retain the original column and row orders. Another way of using \Rfunction{pheatmap} is to supply a pre-computed distance matrix. 
 
@@ -541,7 +542,7 @@ identify categories significantly enriched/unenriched below some p-value cutoff,
 first apply some kind of multiple hypothesis testing correction. For example, GO categories over
 enriched using a .05 FDR cutoff [Benjamini and Hochberg, 1995] can be obtained by running the \Rfunction{p.adjust} function on the un-adjusted p-values in the table
 
-\usecase Adjust the p-values in the table for multiple-testing. How many categories with p-value < 0.05 do you find now?
+\usecase Adjust the p-values in the table for multiple-testing. How many categories with p-value $<$ 0.05 do you find now?
 
 <<>>=
 go$over_represented_pvalue_adjusted <- p.adjust(go$over_represented_pvalue,
